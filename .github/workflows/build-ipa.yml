@@ -1,0 +1,91 @@
+name: Build Unsigned IPA
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: Build Unsigned iOS IPA
+    runs-on: macos-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Show Xcode environment
+        run: |
+          xcodebuild -version
+          xcrun --show-sdk-version --sdk iphoneos
+
+      - name: Ensure shared Xcode scheme exists
+        run: |
+          mkdir -p iBoard.xcodeproj/xcshareddata/xcschemes
+          if [ ! -f "iBoard.xcodeproj/xcshareddata/xcschemes/iBoard.xcscheme" ]; then
+            cat << 'EOF' > iBoard.xcodeproj/xcshareddata/xcschemes/iBoard.xcscheme
+<?xml version="1.0" encoding="UTF-8"?>
+<Scheme
+   LastUpgradeVersion = "1500"
+   version = "1.7">
+   <BuildAction
+      parallelizeBuildables = "YES"
+      buildImplicitDependencies = "YES">
+      <BuildActionEntries>
+         <BuildActionEntry
+            buildForTesting = "YES"
+            buildForRunning = "YES"
+            buildForProfiling = "YES"
+            buildForArchiving = "YES"
+            buildForAnalyzing = "YES">
+            <BuildableReference
+               BuildableIdentifier = "primary"
+               BlueprintIdentifier = "56355CD42F3082450022A09F"
+               BuildableName = "iBoard.app"
+               BlueprintName = "iBoard"
+               ReferencedContainer = "container:iBoard.xcodeproj">
+            </BuildableReference>
+         </BuildActionEntry>
+      </BuildActionEntries>
+   </BuildAction>
+   <ArchiveAction
+      buildConfiguration = "Release"
+      revealArchiveInOrganizer = "YES">
+   </ArchiveAction>
+</Scheme>
+EOF
+          fi
+
+      - name: Build iBoard app (unsigned)
+        run: |
+          xcodebuild clean build \
+            -project iBoard.xcodeproj \
+            -scheme iBoard \
+            -configuration Release \
+            -sdk iphoneos \
+            -derivedDataPath build \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY="" \
+            CODE_SIGNING_STYLE=Manual \
+            IPHONEOS_DEPLOYMENT_TARGET=16.0
+
+      - name: Package into unsigned IPA
+        run: |
+          mkdir -p Payload
+          cp -r build/Build/Products/Release-iphoneos/iBoard.app Payload/
+          rm -rf Payload/iBoard.app/_CodeSignature
+          if [ -d "Payload/iBoard.app/PlugIns/iBoardKeyboard.appex" ]; then
+            rm -rf Payload/iBoard.app/PlugIns/iBoardKeyboard.appex/_CodeSignature
+          fi
+          zip -r -y iBoard-unsigned.ipa Payload
+          echo "IPA packaging complete: $(ls -lh iBoard-unsigned.ipa)"
+
+      - name: Upload Unsigned IPA Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: iBoard-unsigned-ipa
+          path: iBoard-unsigned.ipa
+          if-no-files-found: error
